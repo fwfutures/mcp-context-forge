@@ -13269,6 +13269,19 @@ async def admin_edit_gateway(
             existing_oauth: dict = existing_gateway.oauth_config or {}
             if "redirect_uri_after_success" not in form and "redirect_uri_after_oauth" not in oauth_config and "redirect_uri_after_oauth" in existing_oauth:
                 oauth_config["redirect_uri_after_oauth"] = existing_oauth["redirect_uri_after_oauth"]
+            # The edit form never echoes the stored client secret. A blank secret with an
+            # unchanged client_id means "keep it", not "remove it" (otherwise DCR-issued
+            # credentials break with 401 at the token endpoint after any edit).
+            if (
+                not oauth_config.get("client_secret")
+                and existing_oauth.get("client_secret")
+                and oauth_config.get("client_id")
+                and oauth_config.get("client_id") == existing_oauth.get("client_id")
+            ):
+                oauth_config["client_secret"] = existing_oauth["client_secret"]
+            # Keep the DCR-negotiated token endpoint auth method, which the form does not expose.
+            if "token_endpoint_auth_method" not in oauth_config and "token_endpoint_auth_method" in existing_oauth:
+                oauth_config["token_endpoint_auth_method"] = existing_oauth["token_endpoint_auth_method"]
 
         team_service = TeamManagementService(db)
         team_id = await team_service.verify_team_for_user(user_email, team_id)

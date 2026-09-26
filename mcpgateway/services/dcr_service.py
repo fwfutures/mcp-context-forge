@@ -150,6 +150,52 @@ class DcrService:
         except httpx.HTTPError as e:
             raise DcrError(f"Failed to discover AS metadata for {normalized_issuer}: {e}")
 
+    async def discover_issuer_for_resource(self, resource_url: str) -> str:
+        """Find the authorization server issuer for an MCP server URL (RFC 9728).
+
+        Tries the protected resource metadata advertised by the server, first at the
+        path-aware well-known location and then at the origin. Falls back to the
+        resource origin, which is correct for servers that host their own AS
+        (e.g. Notion, Linear).
+
+        Args:
+            resource_url: The upstream MCP server URL.
+
+        Returns:
+            The issuer URL to use for DCR.
+
+        Raises:
+            DcrError: If the URL is not absolute.
+        """
+        parsed = urlsplit(resource_url)
+        if not parsed.scheme or not parsed.netloc:
+            raise DcrError(f"Cannot derive OAuth issuer from URL {resource_url}")
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        path = parsed.path.rstrip("/")
+        candidates = [f"{origin}/.well-known/oauth-protected-resource{path}"] if path else []
+        candidates.append(f"{origin}/.well-known/oauth-protected-resource")
+
+        client = await self._get_client()
+        for url in candidates:
+            try:
+                response = await client.get(url, timeout=self._get_timeout(), follow_redirects=False)
+            except httpx.HTTPError as e:
+                logger.debug("Protected resource metadata fetch failed for %s: %s", url, e)
+                continue
+            if response.status_code != 200:
+                continue
+            try:
+                servers = response.json().get("authorization_servers") or []
+            except ValueError:
+                continue
+            for server in servers:
+                if isinstance(server, str) and server.startswith("https://"):
+                    logger.info("Discovered OAuth issuer %s for %s via RFC 9728", server, SecurityValidator.sanitize_log_message(resource_url))
+                    return server.rstrip("/")
+
+        logger.info("No protected resource metadata for %s; using origin as issuer", SecurityValidator.sanitize_log_message(resource_url))
+        return origin
+
     async def register_client(self, gateway_id: str, gateway_name: str, issuer: str, redirect_uri: str, scopes: List[str], db: Session) -> RegisteredOAuthClient:
         """Register as OAuth client with upstream AS (RFC 7591).
 
@@ -200,14 +246,26 @@ class DcrService:
             requested_grant_types.append("refresh_token")
             logger.debug("Requesting refresh_token for %s (permissive mode, AS omits grant_types_supported)", normalized_issuer)
 
+        # Pick a token endpoint auth method the AS actually supports. Prefer the
+        # configured method, then a confidential method, then "none" (public PKCE client).
+        auth_methods_supported = metadata.get("token_endpoint_auth_methods_supported") or []
+        token_endpoint_auth_method = self.settings.dcr_token_endpoint_auth_method
+        if auth_methods_supported and token_endpoint_auth_method not in auth_methods_supported:
+            for candidate in ("client_secret_basic", "client_secret_post", "none"):
+                if candidate in auth_methods_supported:
+                    token_endpoint_auth_method = candidate
+                    break
+
         registration_request = {
             "client_name": client_name,
             "redirect_uris": [redirect_uri],
             "grant_types": requested_grant_types,
             "response_types": ["code"],
-            "token_endpoint_auth_method": self.settings.dcr_token_endpoint_auth_method,
-            "scope": " ".join(scopes),
+            "token_endpoint_auth_method": token_endpoint_auth_method,
         }
+        # Only request scopes when some are configured; many ASes reject unknown scopes.
+        if scopes:
+            registration_request["scope"] = " ".join(scopes)
 
         # Send registration request
         try:
@@ -250,7 +308,7 @@ class DcrService:
             grant_types=orjson.dumps(registration_response.get("grant_types", requested_grant_types)).decode(),
             response_types=orjson.dumps(registration_response.get("response_types", ["code"])).decode(),
             scope=registration_response.get("scope", " ".join(scopes)),
-            token_endpoint_auth_method=registration_response.get("token_endpoint_auth_method", self.settings.dcr_token_endpoint_auth_method),
+            token_endpoint_auth_method=registration_response.get("token_endpoint_auth_method", token_endpoint_auth_method),
             registration_client_uri=registration_response.get("registration_client_uri"),
             registration_access_token_encrypted=registration_access_token_encrypted,
             created_at=datetime.now(timezone.utc),

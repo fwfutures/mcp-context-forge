@@ -733,6 +733,16 @@ async def initiate_oauth_flow(
         issuer = oauth_config.get("issuer")
         client_id = oauth_config.get("client_id")
 
+        # No issuer and no client: discover the AS from the upstream server (RFC 9728),
+        # so the admin form only needs the MCP URL for DCR-capable servers.
+        manual_endpoints = oauth_config.get("authorization_url") or oauth_config.get("token_url")
+        if not issuer and not client_id and not manual_endpoints and settings.dcr_enabled and settings.dcr_auto_register_on_missing_credentials:
+            try:
+                issuer = await DcrService().discover_issuer_for_resource(gateway.url)
+                oauth_config["issuer"] = issuer
+            except DcrError as e:
+                logger.warning(f"Could not derive OAuth issuer for gateway {SecurityValidator.sanitize_log_message(gateway_id)}: {e}")
+
         if issuer and not client_id:
             if settings.dcr_enabled and settings.dcr_auto_register_on_missing_credentials:
                 logger.info(f"Gateway {SecurityValidator.sanitize_log_message(gateway_id)} has issuer but no client_id. Attempting DCR...")

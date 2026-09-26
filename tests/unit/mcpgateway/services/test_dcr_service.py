@@ -11,6 +11,7 @@ Tests will FAIL until implementation is complete.
 
 # Standard
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 # Third-Party
 import pytest
@@ -1281,3 +1282,97 @@ class TestDcrError:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestDiscoverIssuerForResource:
+    """Test issuer discovery from an MCP server URL (RFC 9728)."""
+
+    @staticmethod
+    def _response(status_code, payload=None):
+        response = MagicMock()
+        response.status_code = status_code
+        response.json = MagicMock(return_value=payload or {})
+        return response
+
+    @pytest.mark.asyncio
+    async def test_uses_path_aware_protected_resource_metadata(self):
+        """The path-aware PRM location is tried first and its AS is returned."""
+        dcr_service = DcrService()
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=self._response(200, {"authorization_servers": ["https://auth.example.com/"]}))
+
+        with patch.object(dcr_service, "_get_client", return_value=mock_client):
+            issuer = await dcr_service.discover_issuer_for_resource("https://mcp.example.com/mcp")
+
+        assert issuer == "https://auth.example.com"
+        assert mock_client.get.call_args_list[0].args[0] == "https://mcp.example.com/.well-known/oauth-protected-resource/mcp"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_origin_metadata_then_origin(self):
+        """Without PRM the resource origin is used as the issuer."""
+        dcr_service = DcrService()
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=self._response(404))
+
+        with patch.object(dcr_service, "_get_client", return_value=mock_client):
+            issuer = await dcr_service.discover_issuer_for_resource("https://mcp.notion.com/mcp")
+
+        assert issuer == "https://mcp.notion.com"
+        assert [c.args[0] for c in mock_client.get.call_args_list] == [
+            "https://mcp.notion.com/.well-known/oauth-protected-resource/mcp",
+            "https://mcp.notion.com/.well-known/oauth-protected-resource",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_ignores_non_https_authorization_servers(self):
+        """Plain-HTTP authorization servers are not trusted."""
+        dcr_service = DcrService()
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=self._response(200, {"authorization_servers": ["http://auth.example.com"]}))
+
+        with patch.object(dcr_service, "_get_client", return_value=mock_client):
+            issuer = await dcr_service.discover_issuer_for_resource("https://mcp.example.com/mcp")
+
+        assert issuer == "https://mcp.example.com"
+
+    @pytest.mark.asyncio
+    async def test_rejects_relative_url(self):
+        """A URL without scheme and host cannot yield an issuer."""
+        with pytest.raises(DcrError):
+            await DcrService().discover_issuer_for_resource("/mcp")
+
+
+class TestRegistrationNegotiation:
+    """Test that registration adapts to what the AS supports."""
+
+    @staticmethod
+    async def _register(test_db, metadata, scopes):
+        dcr_service = DcrService()
+        response = MagicMock()
+        response.status_code = 201
+        response.json = MagicMock(return_value={"client_id": "cid", "redirect_uris": ["https://gw.example.com/oauth/callback"]})
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=response)
+        with patch.object(dcr_service, "discover_as_metadata", AsyncMock(return_value=metadata)), patch.object(dcr_service, "_get_client", return_value=mock_client):
+            record = await dcr_service.register_client(f"gw-neg-{uuid4().hex}", "GW", "https://as.example.com", "https://gw.example.com/oauth/callback", scopes, test_db)
+        return mock_client.post.call_args.kwargs["json"], record
+
+    @pytest.mark.asyncio
+    async def test_public_client_when_as_only_supports_none(self, test_db):
+        """An AS that only allows public clients gets token_endpoint_auth_method=none."""
+        metadata = {"registration_endpoint": "https://as.example.com/register", "token_endpoint_auth_methods_supported": ["none"]}
+        request, record = await self._register(test_db, metadata, [])
+        assert request["token_endpoint_auth_method"] == "none"
+        assert record.token_endpoint_auth_method == "none"
+
+    @pytest.mark.asyncio
+    async def test_scope_omitted_when_none_configured(self, test_db):
+        """No scope parameter is sent when no scopes are configured."""
+        request, _ = await self._register(test_db, {"registration_endpoint": "https://as.example.com/register"}, [])
+        assert "scope" not in request
+
+    @pytest.mark.asyncio
+    async def test_scope_sent_when_configured(self, test_db):
+        """Configured scopes are still requested."""
+        request, _ = await self._register(test_db, {"registration_endpoint": "https://as.example.com/register"}, ["default"])
+        assert request["scope"] == "default"

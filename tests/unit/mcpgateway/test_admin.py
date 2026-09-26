@@ -7261,6 +7261,46 @@ class TestOAuthFunctionality:
             assert gateway_update.oauth_config["client_secret"] == "enc-secret"
             assert gateway_update.oauth_config["scopes"] == ["a", "b", "c"]
 
+    @pytest.mark.parametrize(
+        ("form_client_id", "expect_kept"),
+        [("dcr-client", True), ("different-client", False)],
+    )
+    @patch.object(GatewayService, "update_gateway")
+    async def test_admin_edit_gateway_oauth_blank_secret_keeps_stored_secret(self, mock_update_gateway, form_client_id, expect_kept, mock_request, mock_db):
+        """A blank secret with an unchanged client_id keeps the stored (e.g. DCR-issued) secret."""
+        form_data = FakeForm(
+            {
+                "name": "Notion",
+                "url": "https://mcp.notion.com/mcp",
+                "oauth_grant_type": "authorization_code",
+                "oauth_issuer": "https://mcp.notion.com",
+                "oauth_client_id": form_client_id,
+                "oauth_client_secret": "",
+            }
+        )
+        mock_request.form = AsyncMock(return_value=form_data)
+        existing = MagicMock()
+        existing.team_id = None
+        existing.oauth_config = {"client_id": "dcr-client", "client_secret": "stored-enc", "token_endpoint_auth_method": "client_secret_post"}  # pragma: allowlist secret
+        mock_db.get = MagicMock(return_value=existing)
+
+        team_service = MagicMock()
+        team_service.verify_team_for_user = AsyncMock(return_value=None)
+        with (
+            patch("mcpgateway.admin.TeamManagementService", lambda db: team_service),
+            patch("mcpgateway.admin.MetadataCapture.extract_modification_metadata") as mock_meta,
+        ):
+            mock_meta.return_value = {"modified_by": "u", "modified_from_ip": None, "modified_via": "ui", "modified_user_agent": None, "version": 1}
+            result = await admin_edit_gateway("gateway-1", mock_request, mock_db, user={"email": "test-user", "db": mock_db})
+            assert result.status_code == 200
+
+        oauth_config = mock_update_gateway.call_args.args[2].oauth_config
+        assert oauth_config["token_endpoint_auth_method"] == "client_secret_post"
+        if expect_kept:
+            assert oauth_config["client_secret"] == "stored-enc"
+        else:
+            assert "client_secret" not in oauth_config
+
     @patch.object(GatewayService, "update_gateway")
     async def test_admin_edit_gateway_oauth_with_audience_parameter(self, mock_update_gateway, mock_request, mock_db):
         """Test editing gateway with OAuth audience parameter (for Atlassian, Auth0, etc.)."""

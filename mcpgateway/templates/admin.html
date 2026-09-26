@@ -5334,6 +5334,13 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                 </div>
               </div>
 
+              <p class="text-sm text-gray-600 dark:text-gray-400">
+                Defaults: Streamable HTTP transport and OAuth 2.0 with automatic client registration.
+                The authorization server is discovered from the MCP server URL, and each user connects their own account.
+              </p>
+              <details id="gateway-advanced-gw" class="rounded-md border border-gray-200 dark:border-gray-700">
+                <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">Advanced</summary>
+                <div class="space-y-4 px-3 pb-3">
               <div>
                 <label
                   class="block text-sm font-medium text-gray-700 dark:text-gray-400"
@@ -5343,8 +5350,8 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                   name="transport"
                   class="mt-1 px-3 py-2 block w-full rounded-md border border-gray-300 dark:border-gray-700 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:placeholder-gray-300 dark:text-gray-300"
                 >
-                  <option value="SSE" selected>SSE</option>
-                  <option value="STREAMABLEHTTP">Streamable HTTP</option>
+                  <option value="STREAMABLEHTTP" selected>Streamable HTTP</option>
+                  <option value="SSE">SSE</option>
                 </select>
               </div>
               <div>
@@ -5357,11 +5364,11 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                   id="auth-type-gw"
                   class="mt-1 px-3 py-2 block w-full rounded-md border border-gray-300 dark:border-gray-700 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:placeholder-gray-300 dark:text-gray-300"
                 >
-                  <option value="">None</option>
+                  <option value="">None (public server)</option>
                   <option value="basic">Basic</option>
                   <option value="bearer">Bearer Token</option>
                   <option value="authheaders">Custom Headers</option>
-                  <option value="oauth">OAuth 2.0</option>
+                  <option value="oauth" selected>OAuth 2.0</option>
                   <option value="query_param">Query Parameter (INSECURE)</option>
                 </select>
               </div>
@@ -5485,7 +5492,7 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
               </div>
 
               <!-- OAuth Configuration Fields -->
-              <div id="auth-oauth-fields-gw" style="display: none">
+              <div id="auth-oauth-fields-gw" style="display: block">
                 <div class="space-y-4">
                   <div>
                     <label
@@ -5518,7 +5525,7 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                         type="url"
                         name="oauth_issuer"
                         class="px-1.5 block w-full rounded-md border border-gray-300 dark:border-gray-700 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:placeholder-gray-300 dark:text-gray-300"
-                        placeholder="http://localhost:3003 or https://oauth.example.com"
+                        placeholder="Leave blank to auto-discover from the MCP server URL"
                       />
                       <button
                         type="button"
@@ -5528,7 +5535,7 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                       >🔍 Discover</button>
                     </div>
                     <p class="mt-1 text-sm text-gray-500">
-                      The OAuth Authorization Server issuer URL. Required for DCR (Dynamic Client Registration).
+                      The OAuth authorization server issuer. Leave blank to discover it from the server (RFC 9728), falling back to the server origin.
                     </p>
                   <div class="oauth-discover-status mt-1 hidden"></div>
                   </div>
@@ -5676,10 +5683,7 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                         OAuth application
                       </p>
                       <p class="mt-1 text-sm text-blue-600 font-medium">
-                        💡 Use:
-                        <code class="bg-blue-100 px-1 rounded"
-                          >{{ request.base_url }}oauth/callback</code
-                        >
+                        💡 Leave blank to use this gateway's callback (APP_DOMAIN/oauth/callback).
                       </p>
                     </div>
                     {% if oauth_redirect_allowed_origin %}
@@ -5876,6 +5880,8 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                   class="mt-1 px-3 py-2 block w-full rounded-md border border-gray-300 dark:border-gray-700 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-900 dark:placeholder-gray-300 dark:text-gray-300"
                 />
               </div>
+                </div>
+              </details>
               <div id="add-gateway-loading" style="display: none">
                 <div class="spinner"></div>
               </div>
@@ -7145,7 +7151,7 @@ Hello &#123;&#123; name &#125;&#125;, welcome to &#123;&#123; company &#125;&#12
                       <p class="mt-1 text-sm text-blue-600 font-medium">
                         💡 Use:
                         <code class="bg-blue-100 px-1 rounded"
-                          >{{ request.base_url }}oauth/callback</code
+                          >APP_DOMAIN/oauth/callback (or leave blank)</code
                         >
                       </p>
                     </div>
@@ -10278,7 +10284,7 @@ class="fixed z-40 inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-ce
                             <p class="mt-1 text-sm text-blue-600 font-medium">
                               💡 Use:
                               <code class="bg-blue-100 px-1 rounded"
-                                >{{ request.base_url }}oauth/callback</code
+                                >APP_DOMAIN/oauth/callback (or leave blank)</code
                               >
                             </p>
                           </div>
@@ -10797,7 +10803,7 @@ class="fixed z-40 inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-ce
                               <p class="mt-1 text-sm text-blue-600 font-medium">
                               💡 Use:
                               <code class="bg-blue-100 px-1 rounded"
-                                >{{ request.base_url }}oauth/callback</code
+                                >APP_DOMAIN/oauth/callback (or leave blank)</code
                               >
                               </p>
                             </div>

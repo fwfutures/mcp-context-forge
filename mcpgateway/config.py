@@ -1063,7 +1063,7 @@ class Settings(BaseSettings):
     dcr_auto_register_on_missing_credentials: bool = Field(default=True, description="Automatically register with AS when gateway has issuer but no client_id")
 
     # Default scopes for DCR
-    dcr_default_scopes: List[str] = Field(default=["mcp:read"], description="Default MCP scopes to request during DCR")
+    dcr_default_scopes: List[str] = Field(default_factory=list, description="Default scopes to request during DCR (empty = let the authorization server decide)")
 
     # Issuer allowlist (empty = allow any)
     dcr_allowed_issuers: List[str] = Field(default_factory=list, description="Optional allowlist of issuer URLs for DCR (empty = allow any)")
