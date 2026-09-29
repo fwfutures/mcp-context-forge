@@ -18318,6 +18318,16 @@ async def test_admin_test_resource_success(monkeypatch, mock_db):
 
 
 @pytest.mark.asyncio
+async def test_admin_test_resource_admin_passes_oauth_identity(monkeypatch, mock_db):
+    """Admins bypass visibility (user=None) but their own OAuth token must still authorise upstream reads."""
+    read = AsyncMock(return_value={"text": "<html/>"})
+    monkeypatch.setattr("mcpgateway.admin.resource_service.read_resource", read)
+    await admin_test_resource("ui://notion/card.html", mock_db, user={"email": "admin@example.com", "is_admin": True})
+    assert read.await_args.kwargs["user"] is None
+    assert read.await_args.kwargs["oauth_identity"] == "admin@example.com"
+
+
+@pytest.mark.asyncio
 async def test_admin_test_resource_not_found(monkeypatch, mock_db):
     monkeypatch.setattr("mcpgateway.admin.resource_service.read_resource", AsyncMock(side_effect=ResourceNotFoundError("Not found")))
     with pytest.raises(HTTPException) as exc:

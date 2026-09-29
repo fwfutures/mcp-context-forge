@@ -2303,6 +2303,7 @@ class ResourceService(BaseService):
         plugin_global_context: Optional[GlobalContext] = None,
         meta_data: Optional[Dict[str, Any]] = None,
         request_headers: Optional[Dict[str, str]] = None,
+        oauth_identity: Optional[str] = None,
     ) -> Union[ResourceContent, ResourceContents]:
         """Read a resource's content with plugin hook support.
 
@@ -2321,6 +2322,8 @@ class ResourceService(BaseService):
             meta_data: Optional metadata dictionary to pass to the gateway during resource reading.
             request_headers: Optional inbound request headers, forwarded to invoke_resource()
                 so token-exchange gateways can resolve the RFC 8693 subject_token.
+            oauth_identity: User whose stored OAuth token authorises the upstream fetch when
+                ``user`` is None (e.g. admin visibility bypass).
 
         Returns:
             Resource content object
@@ -2780,7 +2783,7 @@ class ResourceService(BaseService):
                             resource_id=content_id,
                             resource_uri=getattr(content_obj, "uri") or None,
                             resource_template_uri=template_value or None,
-                            user_identity=user,
+                            user_identity=user or oauth_identity,
                             meta_data=meta_data,
                             resource_obj=resource_db,
                             gateway_obj=resource_db_gateway,

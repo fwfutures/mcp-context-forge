@@ -118,6 +118,12 @@ export const runResourceTest = async function () {
 
   const json = await response.json();
 
+  if (!response.ok) {
+    const resultBox = safeGetElement("resource-test-result");
+    resultBox.textContent = `Error ${response.status}: ${json.detail || json.message || "Failed to read resource"}`;
+    return;
+  }
+
   const resultBox = safeGetElement("resource-test-result");
   resultBox.innerHTML = ""; // clear previous
 

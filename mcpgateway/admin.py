@@ -13459,6 +13459,7 @@ async def admin_test_resource(resource_uri: str, db: Session = Depends(get_db), 
             resource_uri=resource_uri,
             user=None if is_admin else user_email,
             token_teams=None,
+            oauth_identity=user_email,
         )
         return {"content": resource_content}
     except ResourceNotFoundError as e:
