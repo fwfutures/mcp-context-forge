@@ -118,6 +118,7 @@ from mcpgateway.schemas import (
 )
 
 # logging.getLogger("httpx").setLevel(logging.WARNING)  # Disables httpx logs for regular health checks
+from mcpgateway.services.all_tools_service import authorize_url as _authorize_url
 from mcpgateway.services.audit_trail_service import get_audit_trail_service
 from mcpgateway.services.base_service import BaseService
 from mcpgateway.services.encryption_service import get_encryption_service, protect_oauth_config_for_storage
@@ -320,6 +321,7 @@ def gateway_capability_loaders() -> tuple:
 
 # Initialize logging service first
 logging_service = LoggingService()
+
 logger = logging_service.get_logger(__name__)
 
 # Initialize structured logger and audit trail for gateway operations
@@ -8472,7 +8474,7 @@ async def test_gateway_handshake(
                         success=False,
                         latency_ms=_latency_ms(),
                         failure_class="auth",
-                        error=f"Please authorize {gateway.name} first. Visit /oauth/authorize/{gateway.id} to complete OAuth flow.",
+                        error=f"Please authorize {gateway.name} first. Connect it here: {_authorize_url(gateway.id)}",
                     )
                 headers["Authorization"] = f"Bearer {access_token}"
             else:

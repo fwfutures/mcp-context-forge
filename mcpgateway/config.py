@@ -3821,6 +3821,12 @@ Disallow: /
     validation_max_description_length: int = 8192  # 8KB
     validation_max_template_length: int = 65536  # 64KB
     validation_max_content_length: int = 1048576  # 1MB
+    all_tools_server_id: Optional[str] = Field(
+        default=None,
+        description="Virtual server kept linked to every enabled tool/prompt/resource; lists only tools the caller has connected and adds a connections_list tool with authorize links",
+    )
+    all_tools_sync_interval: int = Field(default=30, description="Minimum seconds between All tools server association syncs")
+
     validation_max_json_depth: int = Field(
         default=int(os.getenv("VALIDATION_MAX_JSON_DEPTH", "30")),
         description=(

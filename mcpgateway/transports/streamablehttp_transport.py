@@ -95,6 +95,7 @@ from mcpgateway.services.oauth_manager import OAuthEnforcementUnavailableError, 
 from mcpgateway.services.permission_service import PermissionService
 from mcpgateway.services.prompt_service import PromptNotFoundError, PromptService
 from mcpgateway.services.resource_service import ResourceNotFoundError, ResourceService
+from mcpgateway.services.all_tools_service import CONNECTIONS_TOOL_DESCRIPTION, CONNECTIONS_TOOL_NAME, filter_connected_tools, format_connections, is_all_tools_server, sync_all_tools_server, unconnected_gateways
 from mcpgateway.services.tool_service import ToolInputRequired, ToolInvocationError, ToolNotFoundError, ToolService
 from mcpgateway.transports.context import UserContext
 from mcpgateway.transports.redis_event_store import RedisEventStore
@@ -1847,6 +1848,13 @@ async def call_tool(
     # Extract Layer-1 visibility filter from user context
     user_email, token_teams = get_scoped_visibility_from_user_context(user_context)
 
+    # "All tools" server: built-in tool listing services the caller has not connected yet.
+    if name == CONNECTIONS_TOOL_NAME and is_all_tools_server(server_id):
+        async with get_db() as db:
+            visible = await tool_service.list_server_tools(db, server_id, user_email=user_email, token_teams=token_teams, _request_headers=request_headers)
+            text = format_connections(unconnected_gateways(db, visible, user_email))
+        return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
+
     # Enforce per-server OAuth requirement in permissive mode (defense-in-depth).
     # When mcp_require_auth=True, the middleware already guarantees authentication.
     # Note: OAuthEnforcementUnavailableError is intentionally uncaught here —
@@ -2634,8 +2642,15 @@ async def list_tools() -> List[types.Tool]:
                     logger.warning("Server %s not found in database", server_id)
                     return []
 
+                if is_all_tools_server(server_id):
+                    sync_all_tools_server(db)
+
                 # Default cache mode: use database
                 tools = await tool_service.list_server_tools(db, server_id, user_email=user_email, token_teams=token_teams, _request_headers=request_headers)
+                if is_all_tools_server(server_id):
+                    client_tools = _tools_for_client(filter_connected_tools(db, tools, user_email))
+                    client_tools.append(types.Tool(name=CONNECTIONS_TOOL_NAME, description=CONNECTIONS_TOOL_DESCRIPTION, inputSchema={"type": "object", "properties": {}}))
+                    return client_tools
                 return _tools_for_client(tools)
         except Exception as e:
             logger.error("Error listing tools:%s", e)

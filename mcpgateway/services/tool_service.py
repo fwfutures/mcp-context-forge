@@ -80,6 +80,7 @@ from mcpgateway.plugins.control_telemetry import ControlTelemetryAccumulator, re
 from mcpgateway.plugins.utils import build_request_extensions, record_plugin_metrics
 from mcpgateway.schemas import AuthenticationValues, ToolCreate, ToolMetrics, ToolPreviewResponse, ToolPreviewTarget, ToolPreviewWarning, ToolRead, ToolUpdate, TopPerformer
 from mcpgateway.services.a2a_protocol import prepare_a2a_invocation, prepare_pinned_a2a_invocation
+from mcpgateway.services.all_tools_service import authorize_url as _authorize_url
 from mcpgateway.services.audit_trail_service import get_audit_trail_service
 from mcpgateway.services.base_service import BaseService
 from mcpgateway.services.content_security import ContentSecurityService
@@ -166,6 +167,7 @@ def _get_tool_lookup_cache() -> Any:
 
 # Initialize logging service first
 logging_service = LoggingService()
+
 logger = logging_service.get_logger(__name__)
 
 _W3C_TRACEPARENT_RE = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
@@ -4979,7 +4981,7 @@ class ToolService(BaseService):
         # while still allowing legitimate plugin-injected auth (e.g. Vault) to satisfy
         # the requirement.
         if oauth_authcode_no_db_token and not any(hk.lower() == "authorization" for hk in runtime_headers):
-            raise ToolInvocationError(f"Please authorize {gateway_name} first. Visit /oauth/authorize/{gateway_id_str} to complete OAuth flow.")
+            raise ToolInvocationError(f"Please authorize {gateway_name} first. Connect it here: {_authorize_url(gateway_id_str)}")
 
         runtime_headers = inject_trace_context_headers(runtime_headers)
 
@@ -7195,7 +7197,7 @@ class ToolService(BaseService):
                     # while still allowing legitimate plugin-injected auth (e.g. Vault) to satisfy
                     # the requirement.
                     if oauth_authcode_no_db_token and not any(hk.lower() == "authorization" for hk in headers):
-                        raise ToolInvocationError(f"Please authorize {gateway_name} first. Visit /oauth/authorize/{gateway_id_str} to complete OAuth flow.")
+                        raise ToolInvocationError(f"Please authorize {gateway_name} first. Connect it here: {_authorize_url(gateway_id_str)}")
 
                     with create_child_span("tool.gateway_call", {"tool.name": name, "tool.id": tool_id, "tool.integration_type": "MCP"}):
                         tool_call_result = ToolResult(content=[TextContent(text="", type="text")])

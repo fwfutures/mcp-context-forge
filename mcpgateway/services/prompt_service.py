@@ -50,6 +50,7 @@ from mcpgateway.db import PromptMetric, PromptMetricsHourly, server_prompt_assoc
 from mcpgateway.observability import create_span, set_span_attribute, set_span_error
 from mcpgateway.plugins.utils import build_request_extensions, record_plugin_metrics
 from mcpgateway.schemas import PromptCreate, PromptMetrics, PromptRead, PromptUpdate, TopPerformer
+from mcpgateway.services.all_tools_service import authorize_url as _authorize_url
 from mcpgateway.services.audit_trail_service import get_audit_trail_service
 from mcpgateway.services.base_service import BaseService
 from mcpgateway.services.content_security import ContentPatternError, ContentSizeError, get_content_security_service, TemplateValidationError
@@ -136,6 +137,7 @@ def _get_registry_cache():
 
 # Initialize logging service first
 logging_service = LoggingService()
+
 logger = logging_service.get_logger(__name__)
 
 # Initialize structured logger, audit trail, and metrics buffer for prompt operations
@@ -423,7 +425,7 @@ class PromptService(BaseService):
                 token_storage = TokenStorageService(token_db, user_context=build_token_user_context(token_db, user_email, token_teams))
                 access_token = await token_storage.get_user_token(str(gateway.id), user_email)
             if not access_token:
-                raise PromptError(f"Please authorize {gateway.name} first. Visit /oauth/authorize/{gateway.id} to complete OAuth flow.")
+                raise PromptError(f"Please authorize {gateway.name} first. Connect it here: {_authorize_url(gateway.id)}")
             headers = {**headers, "Authorization": f"Bearer {access_token}"}
         auth_query_params_decrypted: Optional[Dict[str, str]] = None
 
