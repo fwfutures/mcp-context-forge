@@ -44,6 +44,7 @@ from mcpgateway.db import EmailTeam
 from mcpgateway.db import EmailTeamMember as DbEmailTeamMember
 from mcpgateway.db import Gateway as DbGateway
 from mcpgateway.db import get_for_update
+from mcpgateway.db import fresh_db_session
 from mcpgateway.db import Prompt as DbPrompt
 from mcpgateway.db import PromptMetric, PromptMetricsHourly, server_prompt_association
 from mcpgateway.observability import create_span, set_span_attribute, set_span_error
@@ -379,13 +380,22 @@ class PromptService(BaseService):
         """
         return bool(getattr(prompt, "gateway_id", None)) and not bool(getattr(prompt, "template", ""))
 
-    async def _fetch_gateway_prompt_result(self, prompt: DbPrompt, arguments: Optional[Dict[str, str]], meta_data: Optional[Dict[str, Any]] = None) -> PromptResult:
+    async def _fetch_gateway_prompt_result(
+        self,
+        prompt: DbPrompt,
+        arguments: Optional[Dict[str, str]],
+        meta_data: Optional[Dict[str, Any]] = None,
+        user_email: Optional[str] = None,
+        token_teams: Optional[List[str]] = None,
+    ) -> PromptResult:
         """Fetch a rendered prompt from the upstream MCP gateway.
 
         Args:
             prompt: Gateway-backed prompt record from the catalog.
             arguments: Optional prompt-rendering arguments.
             meta_data: Optional metadata dict forwarded as ``_meta`` in the upstream MCP request.
+            user_email: Requesting user; selects their stored token for OAuth authorization_code gateways.
+            token_teams: Team scope of the caller's token, used to resolve the stored OAuth token.
 
         Returns:
             Prompt result normalized into ContextForge models.
@@ -399,6 +409,22 @@ class PromptService(BaseService):
 
         gateway_url = str(gateway.url)
         headers = build_gateway_auth_headers(gateway)
+
+        # Authorization-code gateways hold one token per user (like tool calls); the
+        # gateway's static auth headers carry nothing, so use the caller's token.
+        oauth_config = getattr(gateway, "oauth_config", None)
+        if getattr(gateway, "auth_type", None) == "oauth" and isinstance(oauth_config, dict) and oauth_config.get("grant_type") == "authorization_code":
+            if not user_email:
+                raise PromptError(f"User authentication required for OAuth-protected gateway '{gateway.name}'")
+            # First-Party
+            from mcpgateway.services.token_storage_service import build_token_user_context, TokenStorageService  # pylint: disable=import-outside-toplevel
+
+            with fresh_db_session() as token_db:
+                token_storage = TokenStorageService(token_db, user_context=build_token_user_context(token_db, user_email, token_teams))
+                access_token = await token_storage.get_user_token(str(gateway.id), user_email)
+            if not access_token:
+                raise PromptError(f"Please authorize {gateway.name} first. Visit /oauth/authorize/{gateway.id} to complete OAuth flow.")
+            headers = {**headers, "Authorization": f"Bearer {access_token}"}
         auth_query_params_decrypted: Optional[Dict[str, str]] = None
 
         if getattr(gateway, "auth_type", None) == "query_param" and getattr(gateway, "auth_query_params", None):
@@ -2084,7 +2110,7 @@ class PromptService(BaseService):
                 if self._should_fetch_gateway_prompt(prompt):
                     # Release the read transaction before any remote network I/O.
                     db.commit()
-                    result = await self._fetch_gateway_prompt_result(prompt, arguments, meta_data=_meta_data)
+                    result = await self._fetch_gateway_prompt_result(prompt, arguments, meta_data=_meta_data, user_email=user, token_teams=token_teams)
                 elif not arguments:
                     result = PromptResult(
                         messages=[

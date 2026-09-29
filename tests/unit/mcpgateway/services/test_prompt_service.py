@@ -540,6 +540,8 @@ class TestPromptService:
             db_prompt,
             {"from_timezone": "UTC", "to_timezones": "America/New_York,Europe/Dublin"},
             meta_data=None,
+            user_email="user@test.com",
+            token_teams=None,
         )
         test_db.commit.assert_called_once()
         assert result.description == "Convert time with detailed context"
@@ -3955,6 +3957,73 @@ class TestFetchGatewayPromptRegistryPath:
             result = await service._fetch_gateway_prompt_result(prompt, None, meta_data=None)
 
         assert result.description == "from fallback"
+
+    @pytest.mark.asyncio
+    async def test_fetch_gateway_prompt_uses_callers_oauth_token_for_authorization_code_gateways(self):
+        """Authorization-code gateways render prompts with the requesting user's stored token."""
+        # Standard
+        from types import SimpleNamespace
+
+        # First-Party
+        from mcpgateway.services.prompt_service import PromptService
+
+        service = PromptService()
+        prompt = self._build_gateway_prompt()
+        prompt.gateway.name = "Notion"
+        prompt.gateway.auth_type = "oauth"
+        prompt.gateway.oauth_config = {"grant_type": "authorization_code"}
+        captured_kwargs: dict[str, Any] = {}
+
+        class _FakeMCPProxyClient:
+            async def __aenter__(self):
+                return SimpleNamespace(session=MagicMock())
+
+            async def __aexit__(self, *_exc):
+                return False
+
+        def fake_mcp_proxy_client(*_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _FakeMCPProxyClient()
+
+        remote_result = MagicMock(messages=[], description="rendered")
+        token_storage = MagicMock()
+        token_storage.get_user_token = AsyncMock(return_value="user-access-token")
+        with (
+            patch("mcpgateway.services.prompt_service._downstream_session_id_from_request", return_value=None),
+            patch("mcpgateway.services.prompt_service.mcp_proxy_client", side_effect=fake_mcp_proxy_client),
+            patch("mcpgateway.services.prompt_service._get_prompt_with_meta", AsyncMock(return_value=remote_result)),
+            patch("mcpgateway.services.prompt_service.fresh_db_session"),
+            patch("mcpgateway.services.token_storage_service.build_token_user_context", return_value={}),
+            patch("mcpgateway.services.token_storage_service.TokenStorageService", return_value=token_storage),
+        ):
+            await service._fetch_gateway_prompt_result(prompt, None, user_email="ben@example.com", token_teams=None)
+
+        assert captured_kwargs["headers"]["Authorization"] == "Bearer user-access-token"
+        token_storage.get_user_token.assert_awaited_once_with("gw-1", "ben@example.com")
+
+    @pytest.mark.asyncio
+    async def test_fetch_gateway_prompt_requires_authorization_for_authorization_code_gateways(self):
+        """A user without a stored token gets an actionable authorize error."""
+        # First-Party
+        from mcpgateway.services.prompt_service import PromptError, PromptService
+
+        service = PromptService()
+        prompt = self._build_gateway_prompt()
+        prompt.gateway.name = "Notion"
+        prompt.gateway.auth_type = "oauth"
+        prompt.gateway.oauth_config = {"grant_type": "authorization_code"}
+        token_storage = MagicMock()
+        token_storage.get_user_token = AsyncMock(return_value=None)
+        with (
+            patch("mcpgateway.services.prompt_service.fresh_db_session"),
+            patch("mcpgateway.services.token_storage_service.build_token_user_context", return_value={}),
+            patch("mcpgateway.services.token_storage_service.TokenStorageService", return_value=token_storage),
+            pytest.raises(PromptError, match="Please authorize Notion first"),
+        ):
+            await service._fetch_gateway_prompt_result(prompt, None, user_email="ben@example.com")
+
+        with pytest.raises(PromptError, match="User authentication required"):
+            await service._fetch_gateway_prompt_result(prompt, None)
 
     @pytest.mark.asyncio
     async def test_fetch_gateway_prompt_sse_arm_uses_mcp_proxy_client_with_sse_transport(self):
