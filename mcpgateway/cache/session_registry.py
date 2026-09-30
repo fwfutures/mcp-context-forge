@@ -66,6 +66,7 @@ from mcpgateway import __version__
 from mcpgateway.auth_context import get_user_email
 from mcpgateway.common.models import Implementation, InitializeResult, ServerCapabilities
 from mcpgateway.config import settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import get_db, SessionMessageRecord, SessionRecord
 from mcpgateway.services import PromptService, ResourceService, ToolService
 from mcpgateway.services.logging_service import LoggingService
@@ -1893,7 +1894,10 @@ class SessionRegistry(SessionBackend):
         logger.info("Starting database cleanup task")
         while True:
             try:
+                if not self._sessions:
+                    await get_idle_activity_gate().wait_until_active()
                 # Clean up expired sessions every 5 minutes
+
                 def _db_cleanup() -> int:
                     """Remove expired sessions from the database.
 

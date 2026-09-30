@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 # First-Party
 from mcpgateway.config import settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import (
     A2AAgent,
     A2AAgentMetric,
@@ -264,6 +265,7 @@ class MetricsRollupService:
                         # Normal timeout, proceed to rollup
                         pass
 
+                await get_idle_activity_gate().wait_until_active()
                 if self._pause_event.is_set():
                     logger.info("Metrics rollup paused (%s), skipping this cycle", self._pause_reason or "maintenance")
                     try:

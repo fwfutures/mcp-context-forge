@@ -335,3 +335,21 @@ class TestOnStartingHook:
 
         cfg_module.on_starting(mock_server)
         mock_cfg.set.assert_not_called()
+
+
+@pytest.mark.parametrize("workers", [2, 16])
+def test_idle_mode_rejects_multiple_workers(monkeypatch, workers):
+    """Reject process-local activity tracking across multiple workers."""
+    monkeypatch.setattr(gunicorn_config.settings, "serverless_idle_enabled", True)
+    server = MagicMock()
+    server.cfg.workers = workers
+    with pytest.raises(ValueError, match="exactly one"):
+        gunicorn_config.on_starting(server)
+
+
+def test_idle_mode_accepts_single_worker(monkeypatch):
+    """Allow the supported single-worker profile."""
+    monkeypatch.setattr(gunicorn_config.settings, "serverless_idle_enabled", True)
+    server = MagicMock()
+    server.cfg.workers = 1
+    gunicorn_config.on_starting(server)

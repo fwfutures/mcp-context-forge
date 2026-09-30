@@ -2910,6 +2910,40 @@ class Settings(BaseSettings):
     max_prompt_size: int = 100 * 1024  # 100KB
     prompt_render_timeout: int = 10  # seconds
 
+    serverless_idle_enabled: bool = Field(default=False, description="Pause maintenance while a single-worker gateway is idle")
+    serverless_idle_timeout_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False, description="Grace period after useful requests before maintenance pauses")
+
+    @model_validator(mode="after")
+    def validate_serverless_idle_profile(self) -> Self:
+        """Reject background features outside the single-worker idle profile.
+
+        Returns:
+            Validated settings.
+
+        Raises:
+            ValueError: When the idle profile conflicts with enabled features.
+        """
+        if not self.serverless_idle_enabled:
+            return self
+        incompatible = {
+            "CACHE_TYPE=redis": self.cache_type == "redis",
+            "PRIMARY_WORKER_ELECTION_BACKEND=redis": self.primary_worker_election_backend == "redis",
+            "MCPGATEWAY_SESSION_AFFINITY_ENABLED": self.mcpgateway_session_affinity_enabled,
+            "GATEWAY_ASYNC_LIFECYCLE_ENABLED": self.gateway_async_lifecycle_enabled,
+            "GATEWAY_MODERN_LISTENERS_ENABLED": self.gateway_modern_listeners_enabled,
+            "USE_STATEFUL_SESSIONS": self.use_stateful_sessions,
+            "SIEM_EXPORT_ENABLED": self.siem_export_enabled,
+            "DATAPLANE_PUBLISHER": self.dataplane_publisher,
+            "OTEL_ENABLE_OBSERVABILITY": self.otel_enable_observability,
+            "HOT_COLD_CLASSIFICATION_ENABLED": self.hot_cold_classification_enabled,
+        }
+        conflicts = [name for name, enabled in incompatible.items() if enabled]
+        if self.database_url.startswith("postgresql") and self.db_pool_class != "null":
+            conflicts.append("PostgreSQL requires DB_POOL_CLASS=null to close idle connections")
+        if conflicts:
+            raise ValueError("SERVERLESS_IDLE_ENABLED is incompatible with: " + ", ".join(conflicts))
+        return self
+
     # Health Checks
     # Interval in seconds between gateway health checks.
     health_check_interval: int = 60

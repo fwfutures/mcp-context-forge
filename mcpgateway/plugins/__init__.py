@@ -204,6 +204,12 @@ def _invalidate_shared_enabled_cache() -> None:
 def enable_plugins(toggle: bool) -> None:
     """Toggle the in-memory flag. Use ``enable_plugins_shared`` for cross-worker reach."""
     global _PLUGINS_ENABLED
+    if toggle:
+        # First-Party
+        from mcpgateway.config import settings
+
+        if settings.serverless_idle_enabled:
+            raise ValueError("Disable SERVERLESS_IDLE_ENABLED before enabling plugins")
     _PLUGINS_ENABLED = toggle
     _invalidate_shared_enabled_cache()
 
@@ -214,6 +220,12 @@ async def enable_plugins_shared(toggle: bool) -> bool:
     Returns True when Redis accepted the write.
     """
     global _PLUGINS_ENABLED
+    if toggle:
+        # First-Party
+        from mcpgateway.config import settings
+
+        if settings.serverless_idle_enabled:
+            raise ValueError("Disable SERVERLESS_IDLE_ENABLED before enabling plugins")
     _PLUGINS_ENABLED = toggle
     _invalidate_shared_enabled_cache()
 

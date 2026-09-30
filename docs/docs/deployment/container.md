@@ -202,3 +202,55 @@ Or with Docker:
 docker stop mcpgateway
 docker rm mcpgateway
 ```
+
+## Idle maintenance for scale-to-zero services
+
+`SERVERLESS_IDLE_ENABLED` is an opt-in profile for one worker in one container.
+The default is `false`; existing always-on deployments keep their current behavior.
+The profile pauses gateway health queries, session housekeeping without local sessions,
+metrics retention and rollups, log aggregation, and MCP Apps housekeeping while idle.
+Startup initialization still completes before requests are served.
+
+For a small experimental Railway deployment, use:
+
+```ini
+SERVERLESS_IDLE_ENABLED=true
+SERVERLESS_IDLE_TIMEOUT_SECONDS=60
+GUNICORN_WORKERS=1
+DB_POOL_CLASS=null
+```
+
+Enable Railway Serverless separately and redeploy to apply it.
+These values are proposed deployment settings; editing this document does not change a running service.
+`run-gunicorn.sh` selects one worker when idle mode is enabled and no explicit count is set.
+An explicit count above one is rejected. Other ASGI launchers must also use exactly one process and one replica.
+Activity is local to the process; this profile does not coordinate separate replicas.
+
+PostgreSQL requires `DB_POOL_CLASS=null` because idle pooled connections send TCP keepalive packets.
+NullPool closes a connection when its session returns it.
+This costs a new connection for each database operation and can increase active-request latency.
+One worker reduces baseline memory, but also reduces CPU parallelism and peak throughput.
+The normal pool and worker defaults remain unchanged outside this profile.
+
+Maintenance starts idle and resumes after a successful useful HTTP response or accepted WebSocket.
+Successful requests extend the activity window. Accepted streams remain active until their ASGI call exits.
+Health, readiness, and metrics probes do not extend the window; failed authentication does not extend it either.
+A running operation or maintenance cycle is allowed to finish. Buffered metrics and queued writes still drain.
+Expired records can remain stored until activity resumes; request-time authorization and expiry checks remain unchanged.
+Upstream health information can be stale after a long idle period and refreshes when maintenance resumes.
+
+The profile rejects Redis-backed caches or leadership, session affinity, asynchronous gateway lifecycle jobs,
+standing modern listeners, stateful MCP sessions, SIEM export, dataplane publication, OpenTelemetry export,
+and hot/cold classification. Plugins must remain disabled, including runtime enablement.
+These features need separate lifecycle and reconciliation support before they can participate in idle mode.
+
+!!! warning "Idle maintenance is not a forced shutdown"
+    Open SSE/WebSocket connections, actual requests, queued work, and upstream traffic can keep the container awake.
+    The profile does not cancel calls or close protocol sessions to force sleep.
+    `/health` and `/ready` still check the database. Repeated external probes therefore prevent scale-to-zero,
+    even though they do not count as useful activity. Keep readiness truthful and avoid continuous external polling.
+    Railway's deployment healthcheck can remain enabled; do not use it as a recurring uptime monitor for this experiment.
+
+Validate a deployment through platform logs and metrics without sending HTTP probes to the app.
+After the idle grace period and final outbound work, allow Railway's additional 5–10 minute quiet window.
+Check for a stop event on the new deployment, then use a normal request to verify wake and authorization.

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 # First-Party
 from mcpgateway.config import settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import fresh_db_session
 from mcpgateway.db import MCPAppSession as DbMCPAppSession
 from mcpgateway.services.content_security import ContentPatternError, get_content_security_service
@@ -662,6 +663,7 @@ class MCPAppSessionCleanupService:
                     break
                 except asyncio.TimeoutError:
                     pass
+                await get_idle_activity_gate().wait_until_active()
                 deleted_count = await self.cleanup_once()
                 if deleted_count:
                     logger.info("MCP Apps session cleanup deleted %d expired sessions", deleted_count)

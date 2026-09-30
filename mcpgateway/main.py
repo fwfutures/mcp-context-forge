@@ -98,6 +98,7 @@ from mcpgateway.common.models import ListResourceTemplatesResult, LogLevel, Root
 from mcpgateway.common.query_params import QueryGatewayId, QueryPaginationCursor, QueryTeamId, QueryVisibility
 from mcpgateway.common.validators import SecurityValidator
 from mcpgateway.config import get_settings, SecurityConfigurationError, settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import A2AAgent as DbA2AAgent
 from mcpgateway.db import A2APushNotificationConfig
 from mcpgateway.db import A2ATask as DbA2ATask
@@ -1480,6 +1481,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     siem_export_service: Optional[Any] = None
     dataplane_publisher_service: Optional[Any] = None
 
+    if settings.serverless_idle_enabled and settings.plugins.enabled:
+        raise ValueError("SERVERLESS_IDLE_ENABLED requires PLUGINS_ENABLED=false")
+
     # Initialize logging service FIRST to ensure all logging goes to dual output
     await logging_service.initialize()
     logger.info("Starting ContextForge services")
@@ -1874,6 +1878,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 if hours <= 0:
                     return
                 try:
+                    await get_idle_activity_gate().wait_until_active()
                     await asyncio.to_thread(log_aggregator.backfill, hours)
                     logger.info("Log aggregation backfill completed for last %s hour(s)", hours)
                 except Exception as backfill_error:  # pragma: no cover - defensive logging
@@ -1893,6 +1898,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 try:
                     while not aggregation_stop_event.is_set():
                         try:
+                            await get_idle_activity_gate().wait_until_active()
                             await asyncio.to_thread(log_aggregator.aggregate_all_components)
                         except Exception as agg_error:  # pragma: no cover - defensive logging
                             logger.warning("Log aggregation loop iteration failed: %s", agg_error)
@@ -3313,6 +3319,12 @@ class MCPPathRewriteMiddleware:
         logger.debug("MCPPathRewriteMiddleware: %s -> %s", original_path, new_path)
         return new_path
 
+
+if settings.serverless_idle_enabled:
+    # First-Party
+    from mcpgateway.middleware.idle_activity import IdleActivityMiddleware
+
+    app.add_middleware(IdleActivityMiddleware)
 
 # Configure CORS with environment-aware origins
 cors_origins = list(settings.allowed_origins) if settings.allowed_origins else []

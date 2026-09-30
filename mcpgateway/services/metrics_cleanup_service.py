@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 # First-Party
 from mcpgateway.config import settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import (
     A2AAgentMetric,
     A2AAgentMetricsHourly,
@@ -240,6 +241,7 @@ class MetricsCleanupService:
                     # Normal timeout, proceed to cleanup
                     pass
 
+                await get_idle_activity_gate().wait_until_active()
                 # Run cleanup
                 summary = await self.cleanup_all()
                 self._cleanup_runs += 1

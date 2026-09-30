@@ -89,6 +89,9 @@ def on_starting(server):
     """
     global _prepared_key_file
 
+    if settings.serverless_idle_enabled and server.cfg.workers != 1:
+        raise ValueError("SERVERLESS_IDLE_ENABLED requires exactly one Gunicorn worker")
+
     # Check if SSL is enabled via environment variable (set by run-gunicorn.sh)
     # and a passphrase is provided
     ssl_enabled = os.environ.get("SSL", "false").lower() == "true"

@@ -85,6 +85,7 @@ except ImportError:
 from mcpgateway import __version__
 from mcpgateway.common.validators import SecurityValidator
 from mcpgateway.config import settings
+from mcpgateway.services.idle_activity import get_idle_activity_gate
 from mcpgateway.db import EmailTeam as DbEmailTeam
 from mcpgateway.db import EmailTeamMember as DbEmailTeamMember
 from mcpgateway.db import EmailUser as DbEmailUser
@@ -5642,6 +5643,7 @@ class GatewayService(BaseService):  # pylint: disable=too-many-instance-attribut
         next_health_check_at = time.monotonic()
 
         while True:
+            await get_idle_activity_gate().wait_until_active()
             if require_leader is not None and not await require_leader():
                 return
 

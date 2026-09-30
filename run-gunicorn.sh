@@ -234,6 +234,15 @@ EOF
 # Number of worker processes (adjust based on CPU cores and expected load)
 # Default: 2 (safe default for most systems)
 # Set to "auto" for automatic detection based on CPU cores
+case "${SERVERLESS_IDLE_ENABLED:-false}" in
+true|TRUE|True|1|yes|YES|Yes|on|ON|On)
+    if [[ -n "${GUNICORN_WORKERS:-}" && "${GUNICORN_WORKERS}" != "auto" && "${GUNICORN_WORKERS}" != "1" ]]; then
+        echo "SERVERLESS_IDLE_ENABLED requires GUNICORN_WORKERS=1"
+        exit 1
+    fi
+    GUNICORN_WORKERS=1
+    ;;
+esac
 if [[ -z "${GUNICORN_WORKERS:-}" || "${GUNICORN_WORKERS}" == "auto" ]]; then
     # Auto-detect workers based on CPU cores (default behavior)
     # Try to detect CPU count
